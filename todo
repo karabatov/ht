@@ -1,0 +1,2 @@
+Fix tests to include ht.py instead of t.py | id:77b369cada7d6668aeedb077c7df69e022990976
+Make pyrise install from requirements.txt and not complain on httplib2 | id:a9fa6a62bee7385b01f770688281437f93f29e1d

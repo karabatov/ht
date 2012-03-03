@@ -1,1 +1,3 @@
 cram
+httplib2
+pyrise

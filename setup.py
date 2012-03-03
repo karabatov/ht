@@ -4,15 +4,15 @@ except:
     from distutils.core import setup
 
 setup(
-    name='t',
-    version='1.2.0',
-    author='Steve Losh',
-    author_email='steve@stevelosh.com',
-    url='http://bitbucket.org/sjl/t',
-    py_modules=['t'],
+    name='ht',
+    version='1.0.0',
+    author='Yuri Karabatov',
+    author_email='karabatov@gmail.com',
+    url='https://github.com/karabatov/ht',
+    py_modules=['ht'],
     entry_points={
         'console_scripts': [
-            't = t:_main',
+            'ht = ht:_main',
         ],
     },
 )
