@@ -7,6 +7,7 @@ from __future__ import with_statement
 import os, re, sys, hashlib
 from operator import itemgetter
 from optparse import OptionParser, OptionGroup
+from pyrise import *
 
 
 class InvalidTaskfile(Exception):
@@ -32,49 +33,7 @@ def _hash(text):
     Currently SHA1 hashing is used.  It should be plenty for our purposes.
 
     """
-    return hashlib.sha1(text).hexdigest()
-
-def _task_from_taskline(taskline):
-    """Parse a taskline (from a task file) and return a task.
-
-    A taskline should be in the format:
-
-        summary text ... | meta1:meta1_value,meta2:meta2_value,...
-
-    The task returned will be a dictionary such as:
-
-        { 'id': <hash id>,
-          'text': <summary text>,
-           ... other metadata ... }
-
-    A taskline can also consist of only summary text, in which case the id
-    and other metadata will be generated when the line is read.  This is
-    supported to enable editing of the taskfile with a simple text editor.
-    """
-    if taskline.strip().startswith('#'):
-        return None
-    elif '|' in taskline:
-        text, _, meta = taskline.rpartition('|')
-        task = { 'text': text.strip() }
-        for piece in meta.strip().split(','):
-            label, data = piece.split(':')
-            task[label.strip()] = data.strip()
-    else:
-        text = taskline.strip()
-        task = { 'id': _hash(text), 'text': text }
-    return task
-
-def _tasklines_from_tasks(tasks):
-    """Parse a list of tasks into tasklines suitable for writing."""
-
-    tasklines = []
-
-    for task in tasks:
-        meta = [m for m in task.items() if m[0] != 'text']
-        meta_str = ', '.join('%s:%s' % m for m in meta)
-        tasklines.append('%s | %s\n' % (task['text'], meta_str))
-
-    return tasklines
+    return hashlib.sha1(str(text)).hexdigest()
 
 def _prefixes(ids):
     """Return a mapping of ids to prefixes in O(n) time.
@@ -86,7 +45,7 @@ def _prefixes(ids):
     entire ID will be the prefix.
     """
     ps = {}
-    for id in ids:
+    for id in ids.values():
         id_len = len(id)
         for i in range(1, id_len+1):
             # identifies an empty prefix slot, or a singular collision
@@ -122,24 +81,22 @@ class TaskDict(object):
     can be written back out to disk with the write() function.
 
     """
-    def __init__(self, taskdir='.', name='tasks'):
+    def __init__(self, name='tasks'):
         """Initialize by reading the task files, if they exist."""
-        self.tasks = {}
+        self.tasks = {} 
         self.done = {}
+        self.prefixes = {}
         self.name = name
-        self.taskdir = taskdir
-        filemap = (('tasks', self.name), ('done', '.%s.done' % self.name))
-        for kind, filename in filemap:
-            path = os.path.join(os.path.expanduser(self.taskdir), filename)
-            if os.path.isdir(path):
-                raise InvalidTaskfile
-            if os.path.exists(path):
-                with open(path, 'r') as tfile:
-                    tls = [tl.strip() for tl in tfile if tl]
-                    tasks = map(_task_from_taskline, tls)
-                    for task in tasks:
-                        if task is not None:
-                            getattr(self, kind)[task['id']] = task
+        if 'HIGHRISE_SITE' and 'HIGHRISE_API_KEY' in os.environ:
+            Highrise.set_server(os.environ['HIGHRISE_SITE'])
+            Highrise.auth(os.environ['HIGHRISE_API_KEY'])
+        else:
+            sys.stderr.write('Highrise credentials not found. Set HIGHRISE_SITE and HIGHRISE_API_KEY environment variables.\n')     
+            sys.exit()
+        tasks = Task().all()
+        for task in tasks:
+            self.tasks[task.id] = task
+            self.prefixes[_hash(task.id)] = _hash(task.id)
 
     def __getitem__(self, prefix):
         """Return the unfinished task with the given prefix.
@@ -209,17 +166,18 @@ class TaskDict(object):
     def print_list(self, kind='tasks', verbose=False, quiet=False, grep=''):
         """Print out a nicely formatted list of unfinished tasks."""
         tasks = dict(getattr(self, kind).items())
-        label = 'prefix' if not verbose else 'id'
+        plen = 0
 
         if not verbose:
-            for task_id, prefix in _prefixes(tasks).items():
-                tasks[task_id]['prefix'] = prefix
+            for task_id, prefix in _prefixes(self.prefixes).items():
+                self.prefixes[task_id] = prefix
 
-        plen = max(map(lambda t: len(t[label]), tasks.values())) if tasks else 0
+        if not verbose:
+            plen = max(map(lambda t: len(t), self.prefixes.values())) 
         for _, task in sorted(tasks.items()):
-            if grep.lower() in task['text'].lower():
-                p = '%s - ' % task[label].ljust(plen) if not quiet else ''
-                print p + task['text']
+            if grep.lower() in task.body.lower():
+                p = '%s - ' % self.prefixes[_hash(task.id)].ljust(plen) if not quiet else ''
+                print p + task.body
 
     def write(self, delete_if_empty=False):
         """Flush the finished and unfinished tasks to the files on disk."""
@@ -239,7 +197,7 @@ class TaskDict(object):
 
 def _build_parser():
     """Return a parser for the command-line interface."""
-    usage = "Usage: %prog [-t DIR] [-l LIST] [options] [TEXT]"
+    usage = "Usage: %prog [-l LIST] [options] [TEXT]"
     parser = OptionParser(usage=usage)
 
     actions = OptionGroup(parser, "Actions",
@@ -255,11 +213,6 @@ def _build_parser():
     config = OptionGroup(parser, "Configuration Options")
     config.add_option("-l", "--list", dest="name", default="tasks",
                       help="work on LIST", metavar="LIST")
-    config.add_option("-t", "--task-dir", dest="taskdir", default="",
-                      help="work on the lists in DIR", metavar="DIR")
-    config.add_option("-d", "--delete-if-empty",
-                      action="store_true", dest="delete", default=False,
-                      help="delete the task file if it becomes empty")
     parser.add_option_group(config)
 
     output = OptionGroup(parser, "Output Options")
@@ -282,7 +235,7 @@ def _main():
     """Run the command-line interface."""
     (options, args) = _build_parser().parse_args()
 
-    td = TaskDict(taskdir=options.taskdir, name=options.name)
+    td = TaskDict(name=options.name)
     text = ' '.join(args).strip()
 
     try:

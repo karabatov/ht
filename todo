@@ -1,2 +1,6 @@
+Add task deletion | id:6c75799230eefee537e3a364b047c3d6a9c79982
 Fix tests to include ht.py instead of t.py | id:77b369cada7d6668aeedb077c7df69e022990976
+Add category display | id:8fb9744ff71b8608fe8faf979ae94db47c0364e7
 Make pyrise install from requirements.txt and not complain on httplib2 | id:a9fa6a62bee7385b01f770688281437f93f29e1d
+Add task completion | id:bd7084859e9b37977a6c5f23518956f0f202ce8d
+Add sorting by today, next week, etc | id:e6ef9bda7e13966548cf297044e9da8e8e6836b4
