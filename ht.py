@@ -4,7 +4,7 @@
 
 from __future__ import with_statement
 
-import os, re, sys, hashlib
+import os, re, sys, hashlib, datetime
 from operator import itemgetter
 from optparse import OptionParser, OptionGroup
 from pyrise import *
@@ -45,26 +45,28 @@ def _prefixes(ids):
     entire ID will be the prefix.
     """
     ps = {}
-    for id in ids.values():
-        id_len = len(id)
+    for id in ids.keys():
+        id1 = _hash(id)
+        id_len = len(id1)
         for i in range(1, id_len+1):
             # identifies an empty prefix slot, or a singular collision
-            prefix = id[:i]
+            prefix = id1[:i]
             if (not prefix in ps) or (ps[prefix] and prefix != ps[prefix]):
                 break
         if prefix in ps:
             # if there is a collision
             other_id = ps[prefix]
+            other_id1 = _hash(ps[prefix])
             for j in range(i, id_len+1):
-                if other_id[:j] == id[:j]:
-                    ps[id[:j]] = ''
+                if other_id1[:j] == id1[:j]:
+                    ps[id1[:j]] = ''
                 else:
-                    ps[other_id[:j]] = other_id
-                    ps[id[:j]] = id
+                    ps[other_id1[:j]] = other_id
+                    ps[id1[:j]] = id
                     break
             else:
-                ps[other_id[:id_len+1]] = other_id
-                ps[id] = id
+                ps[other_id1[:id_len+1]] = other_id
+                ps[id1] = id
         else:
             # no collision, can safely add
             ps[prefix] = id
@@ -96,7 +98,10 @@ class TaskDict(object):
         tasks = Task().all()
         for task in tasks:
             self.tasks[task.id] = task
-            self.prefixes[_hash(task.id)] = _hash(task.id)
+            self.prefixes[task.id] = ''
+        for task_id, prefix in _prefixes(self.prefixes).items():
+            self.prefixes[task_id] = prefix
+
 
     def __getitem__(self, prefix):
         """Return the unfinished task with the given prefix.
@@ -149,8 +154,16 @@ class TaskDict(object):
         be raised.
 
         """
-        task = self.tasks.pop(self[prefix]['id'])
-        self.done[task['id']] = task
+        for item in self.prefixes.items():
+            if item[1] == prefix:
+                task_id = item[0]
+                break
+        if not task_id:
+            print 'Task with prefix "%s" not found!' % prefix
+            exit
+        task = self.tasks[task_id]
+        task.done_at = datetime.utcnow()
+        task.save()
 
     def remove_task(self, prefix):
         """Remove the task from tasks list.
@@ -169,14 +182,10 @@ class TaskDict(object):
         plen = 0
 
         if not verbose:
-            for task_id, prefix in _prefixes(self.prefixes).items():
-                self.prefixes[task_id] = prefix
-
-        if not verbose:
             plen = max(map(lambda t: len(t), self.prefixes.values())) 
         for _, task in sorted(tasks.items()):
             if grep.lower() in task.body.lower():
-                p = '%s - ' % self.prefixes[_hash(task.id)].ljust(plen) if not quiet else ''
+                p = '%s - ' % self.prefixes[task.id].ljust(plen) if not quiet else ''
                 print p + task.body
 
     def write(self, delete_if_empty=False):
@@ -241,16 +250,12 @@ def _main():
     try:
         if options.finish:
             td.finish_task(options.finish)
-            td.write(options.delete)
         elif options.remove:
             td.remove_task(options.remove)
-            td.write(options.delete)
         elif options.edit:
             td.edit_task(options.edit, text)
-            td.write(options.delete)
         elif text:
             td.add_task(text)
-            td.write(options.delete)
         else:
             kind = 'tasks' if not options.done else 'done'
             td.print_list(kind=kind, verbose=options.verbose, quiet=options.quiet,
